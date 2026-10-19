@@ -11,7 +11,7 @@
 
 </div>
 
-Lets an agent call you to your Android phone when a long job ends, a decision blocks it, or it needs a password. The phone vibrates long-short-long, which is Morse K, "over to you", and is easy to tell from a call or a message through a pocket. A notification with sound carries the reason, and the torch lights for a phone that lies face down on a desk
+Lets an agent call you to your Android phone when a long job ends, a decision blocks it, or it needs a password. The phone vibrates long-short-long, which is Morse K, "over to you", and is easy to tell from a call or a message through a pocket. A notification with sound carries the reason, and the torch lights for a phone that lies face down on a desk. For a set time, the agent puts an alarm in the phone's clock app instead
 
 The script is sent to the phone over ssh on each call, so the phone holds no copy that can go stale
 

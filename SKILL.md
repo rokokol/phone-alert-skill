@@ -19,10 +19,10 @@ ssh PHONE "bash -s -- ring $(printf '%q ' -t TITLE "MESSAGE")" < alert.sh
 
 ## At a set time: an alarm
 
-An alarm goes to the phone's clock app through Android's `SET_ALARM` intent; termux-api has no alarm call. `CLOCK` is the clock app's package from the agent's instructions or memory, or from the user, since a Termux shell cannot list who handles the intent
+An alarm goes to the phone's clock app through Android's `SET_ALARM` intent; termux-api has no alarm call. `CLOCK` is the clock app's package, from the agent's instructions or memory, or else from `/system/bin/cmd package query-activities --brief --user 0 -a android.intent.action.SET_ALARM` on the phone; without `--user 0` that command asks for every user and is refused
 
 ```sh
-ssh PHONE "am start -a android.intent.action.SET_ALARM -p CLOCK --ei android.intent.extra.alarm.HOUR H --ei android.intent.extra.alarm.MINUTES M $(printf '%q ' --es android.intent.extra.alarm.MESSAGE "MESSAGE") --ez android.intent.extra.alarm.SKIP_UI true </dev/null"
+ssh PHONE "am start -a android.intent.action.SET_ALARM -p CLOCK --ei android.intent.extra.alarm.HOUR H --ei android.intent.extra.alarm.MINUTES M $(printf '%q ' --es android.intent.extra.alarm.MESSAGE "MESSAGE") --ez android.intent.extra.alarm.SKIP_UI true"
 ```
 
 - **Termux needs the special access "Display over other apps"**: the intent starts an activity, and Android drops an activity start from the background without an error unless Termux has that access or a window on the screen
