@@ -1,79 +1,98 @@
 #!/usr/bin/env bash
-# Behaviour tests for alert.sh, run on any host: the termux-api commands are stubs on PATH that log their calls
-# Needs bash 3.2 and POSIX tools only
+# The whole gate, run the same way locally and in CI: nix develop -c ./tests/check.sh
+# The vendored checkers prove their own checks able to fail on every run; the checks
+# written here are proven by tests/fixtures/must-fail.yml and by tests/alert.sh
 set -euo pipefail
 
-HERE=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-ALERT="$HERE/../alert.sh"
-work=$(mktemp -d "${TMPDIR:-/tmp}/phone-alert-test.XXXXXX")
+usage() {
+  cat <<'EOF'
+check.sh — the whole gate of the phone-alert skill
+
+  check.sh
+
+  -h, --help   print this and exit
+
+Lints the scripts and the workflows, holds the vendored copies to their lock, the docs to
+the house rules and alert.sh to its help, then runs the behaviour tests of alert.sh with
+termux-api stubbed. Needs the tools the flake's dev shell pins:
+
+  nix develop -c ./tests/check.sh
+
+Nothing here reaches the network
+Exit 0 when everything holds, 1 on a finding, 2 on a usage error
+EOF
+}
+
+HERE=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$HERE"
+
+fail() {
+  printf 'check: %s\n' "$1" >&2
+  exit 1
+}
+
+case "${1:-}" in
+  '') ;;
+  -h | --help | help)
+    usage
+    exit 0
+    ;;
+  *)
+    printf 'check: no such argument: %s\n\n' "$1" >&2
+    usage >&2
+    exit 2
+    ;;
+esac
+
+missing=()
+for tool in actionlint jq nixfmt shellcheck shfmt; do
+  command -v "$tool" >/dev/null || missing+=("$tool")
+done
+((${#missing[@]} == 0)) ||
+  fail "missing: ${missing[*]} — they are pinned in the flake, so run this as: nix develop -c ./tests/check.sh"
+
+work=$(mktemp -d "${TMPDIR:-/tmp}/check.XXXXXX")
 trap 'rm -rf "$work"' EXIT
 
-mkdir "$work/bin"
-for cmd in termux-vibrate termux-notification; do
-  cat >"$work/bin/$cmd" <<EOF
-#!/usr/bin/env bash
-printf '%s %s\n' "$cmd" "\$*" >>"\$STUB_LOG"
-EOF
-done
-# The torch answers late, the way every termux-api call does, so a call that overlaps it logs first
-cat >"$work/bin/termux-torch" <<'EOF'
-#!/usr/bin/env bash
-sleep 0.3
-printf 'termux-torch %s\n' "$*" >>"$STUB_LOG"
-EOF
-chmod +x "$work/bin/"*
+# One source of truth for what gets linted: the scripts this repository writes itself
+scripts=(alert.sh tests/alert.sh tests/check.sh)
 
-failures=0
-check() { # NAME CONDITION...
-  local name="$1"
-  shift
-  if "$@"; then
-    printf 'ok   %s\n' "$name"
-  else
-    printf 'FAIL %s\n' "$name" >&2
-    failures=$((failures + 1))
-  fi
-}
+echo "== the scripts parse and lint"
+for s in "${scripts[@]}"; do bash -n "$s"; done
+shellcheck "${scripts[@]}"
+shfmt -d -i 2 -ci "${scripts[@]}"
 
-# Runs alert.sh with the stubs; sets $status and $log
-run() {
-  : >"$work/log"
-  status=0
-  STUB_LOG="$work/log" PATH="$work/bin:$PATH" bash "$ALERT" "$@" >"$work/out" 2>"$work/err" || status=$?
-  log="$work/log"
-}
-sequence() { cut -d' ' -f1-2 "$log" | tr '\n' ' '; }
+echo "== the workflows pass actionlint"
+actionlint .github/workflows/*.yml
 
-run ring "hello"
-check "a ring exits 0" [ "$status" = 0 ]
-check "the notification carries the message and sounds" grep -q -- '^termux-notification .*-c hello .*--sound' "$log"
-check "the torch is lit for the whole pulse group and nothing overlaps it" \
-  [ "$(sequence)" = "termux-notification -i termux-torch on termux-vibrate -f termux-vibrate -f termux-vibrate -f termux-torch off " ]
-check "the pulses are long, short, long" \
-  [ "$(grep '^termux-vibrate' "$log" | sed 's/.*-d //' | tr '\n' ' ')" = "1000 250 1000 " ]
-
-run ring -t "Look" "hello"
-check "-t sets the title" grep -q -- '-t Look' "$log"
-
-# The way it reaches a phone: the script itself is bash's stdin
-: >"$work/log"
-status=0
-STUB_LOG="$work/log" PATH="$work/bin:$PATH" bash -s -- ring "hello" <"$ALERT" >/dev/null 2>&1 || status=$?
-log="$work/log"
-check "under bash -s the whole script runs" [ "$status" = 0 ]
-check "under bash -s all three pulses play" [ "$(grep -c '^termux-vibrate' "$log")" = 3 ]
-
-for bad in "ring" "ring hi there" "ring --bogus hi" "ring -t" "nope"; do
-  # shellcheck disable=SC2086 # each case is a word list on purpose
-  run $bad
-  check "usage error exits 2: $bad" [ "$status" = 2 ]
-done
-
-run --help
-check "--help exits 0 and names the ring subcommand" grep -q 'alert.sh ring' "$work/out"
-
-if ((failures)); then
-  printf 'check.sh: %d failed\n' "$failures" >&2
-  exit 1
+echo "== the workflow lint is able to fail"
+mkdir -p "$work/bad/.github/workflows"
+cp tests/fixtures/must-fail.yml "$work/bad/.github/workflows/"
+if (cd "$work/bad" && actionlint .github/workflows/*.yml >/dev/null 2>&1); then
+  fail "actionlint passed tests/fixtures/must-fail.yml — it cannot catch anything"
 fi
-printf 'check.sh: everything holds\n'
+
+echo "== the Nix this repository holds is formatted"
+nixfmt --check flake.nix || fail "flake.nix is not what nixfmt writes — run nix fmt"
+
+echo "== the vendored copies are byte-equal to their source"
+./vendor-sync.sh check
+
+echo "== the workflows take no tool from a registry"
+./check-pins.sh
+
+echo "== SKILL.md loads, and every link resolves"
+./check-skill.sh -n phone-alert .
+
+echo "== the docs keep the house rules"
+./check-prose.sh README.md SKILL.md CHANGELOG.md
+./check-changelog.sh CHANGELOG.md
+
+echo "== alert.sh answers to its help, and the docs name only what it parses"
+./check-sh.sh -m SKILL.md -m README.md alert.sh
+
+echo "== alert.sh behaves, with termux-api stubbed"
+./tests/alert.sh
+
+echo
+echo "check: everything holds"

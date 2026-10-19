@@ -8,6 +8,7 @@
 ![Bash](https://img.shields.io/badge/Bash-4EAA25?style=flat&logo=gnubash&logoColor=white)
 ![Termux](https://img.shields.io/badge/Termux-000000?style=flat&logo=android&logoColor=white)
 [![license](https://img.shields.io/badge/MIT-3DA639?style=flat)](LICENSE)
+[![ci](https://github.com/rokokol/phone-alert-skill/actions/workflows/build.yml/badge.svg)](https://github.com/rokokol/phone-alert-skill/actions/workflows/build.yml)
 
 </div>
 
@@ -40,4 +41,4 @@ ssh PHONE "bash -s -- ring $(printf '%q ' 'The build is done')" < alert.sh
 
 ## Development
 
-`tests/check.sh` runs on any host: it puts stubs of the termux-api commands on `PATH` and checks the order of the calls and the exit codes. How the signal feels in a pocket is checked only on a phone
+`nix develop -c ./tests/check.sh` is the whole gate, the same in CI: it lints the scripts and workflows, holds the docs to the house rules, and runs `tests/alert.sh`, which puts stubs of the termux-api commands on `PATH` and checks the order of the calls and the exit codes. How the signal feels in a pocket is checked only on a phone
